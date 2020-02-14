@@ -7,6 +7,8 @@ from random import randint
 
 COLORS = dict(black=(0, 0, 0), blue=(1, 0, 0), green=(0, 1, 0), red=(0, 0, 1), yellow=(1, 1, 0))
 
+INCLUDE_TOPDOWN = False
+
 
 def do_lines_intersect(x1, y1, x2, y2, x3, y3, x4, y4):
     t = (x1 - x3) * (y3 - y4) - ((y1 - y3) * (x3 - x4))
@@ -21,19 +23,20 @@ def do_lines_intersect(x1, y1, x2, y2, x3, y3, x4, y4):
     
     return -1, 0, 0
 
-def proj_to_screen_coords(val_x, dist, focal_dist, wall_height, screen_height, screen_width):
+def proj_to_screen_coords(val_x, dist, focal_dist, focal_height, wall_height, screen_height, screen_width):
     
     height = abs(wall_height * focal_dist/dist)
 
-    bottom_offset = (screen_height - abs(300 * focal_dist/dist)) / 2
+    bottom_offset = (screen_height - abs(focal_height * focal_dist/dist)) / 2
     top_offset = screen_height - bottom_offset - height
     
-    x = screen_width + val_x * screen_width
+    x = val_x * screen_width
+    if INCLUDE_TOPDOWN:
+        x += screen_width
     y = top_offset
     y_ = screen_height - bottom_offset
 
     return x, y, y_
-
 
 
 class Eye:
@@ -104,7 +107,9 @@ class Eye:
 
 class Image:
     def __init__(self, w, h):
-        self.img = np.full((h, w * 2, 3), 1, dtype="float")
+        if INCLUDE_TOPDOWN:
+            w *= 2
+        self.img = np.full((h, w, 3), 1, dtype="float")
     
     def draw_circle(self, x, y, color="red", size=3):
         x, y = int(x), int(y)
@@ -143,19 +148,19 @@ def make_image(eye, degrees, idx):
     
     focal_dist = 40
     focal_width = 35
+    focal_height = screen_height * 3 / 5
 
 #     im = Image.new('RGB', (screen_width * 2, screen_height), "white")
 #     draw = ImageDraw.Draw(im)
     img = Image(screen_width, screen_height)
     eye__ = Eye(focal_dist, focal_width)
     eye__.set(*eye, degrees/360*2*pi)
-    # Draw topdown view
 
-    img.draw_eye(eye__.get_point(), eye__.eye_angle)
     visual_field_points = eye__.field_line
     
-    # draw projective plane
-    img.draw_line(visual_field_points, "green")
+    if INCLUDE_TOPDOWN:
+        img.draw_eye(eye__.get_point(), eye__.eye_angle)
+        img.draw_line(visual_field_points, "green")
     
     wall_points = []
     wall_connections = []
@@ -213,8 +218,9 @@ def make_image(eye, degrees, idx):
 
     for wall_point in wall_points:
         is_vis, val_x = eye__.map_to_view(*wall_point)
-        if is_vis:
-            img.draw_circle(*wall_point, "black" if is_vis else "yellow")
+        if INCLUDE_TOPDOWN:
+            if is_vis:
+                img.draw_circle(*wall_point, "black" if is_vis else "yellow")
         
         dist = eye__.distance(*wall_point)
         
@@ -224,8 +230,8 @@ def make_image(eye, degrees, idx):
         for from_idx, to_idx in zip(connection_list[:-1], connection_list[1:]):
             wall_from = wall_points[from_idx]
             wall_to = wall_points[to_idx]
-
-            img.draw_line((*wall_from, *wall_to))
+            if INCLUDE_TOPDOWN:
+                img.draw_line((*wall_from, *wall_to))
 
     # Draw front view
     
@@ -234,12 +240,13 @@ def make_image(eye, degrees, idx):
     visual_field_points = []
     for i, (is_vis, val_x, dist) in enumerate(vals):
     
-        wall_height = 300 if i < short_wall_idx else 80
+        wall_height = focal_height if i < short_wall_idx else (focal_height/4)
         
         x, y, y_ = proj_to_screen_coords(
             val_x,
             dist,
             focal_dist,
+            focal_height,
             wall_height,
             screen_height,
             screen_width
